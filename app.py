@@ -1,6 +1,9 @@
 import tkinter as tk
-import subprocess
+# import subprocess
 import yaml
+from client import connection_setup, connect_tcpip, log_data, close_connection
+#     close_connection()
+
 
 class App:
     def __init__(self, master):
@@ -37,18 +40,51 @@ class App:
         self.status_text.grid(row=3, column=1, padx=10, pady=10)
 
     def start_client(self):
-        ip_address = self.ip_entry.get() or self.ip_var
-        port_number = self.port_entry.get() or self.port_var 
-        self.process = subprocess.Popen(["python", "client.py", ip_address, port_number])
+        self.ip_address = self.ip_entry.get() or self.ip_var
+        self.port_number = self.port_entry.get() or self.port_var 
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
-        self.status_text.insert(tk.END, "Client started\n")
 
-        with open("config.yaml", "w") as f:
-            yaml.dump({"ip_address": ip_address, "port_number": port_number}, f)
+        self.status_text.insert(tk.END, "Client started\n")
+        self.status_text.update_idletasks()  # update widget immediately
+        
+        self.update_config()
+
+        connection_setup()
+        
+        connect_tcpip()
+        self.status_text.insert(tk.END, "TCP/IP Connection is open.\n")
+        self.status_text.update_idletasks()  # update widget immediately
+
+        self.status_text.insert(tk.END, "Logging data ...\n")
+        self.status_text.update_idletasks()  # update widget immediately
+        log_data()
+        self.status_text.insert(tk.END, "Data logging stopped.\n")
+        self.status_text.update_idletasks()  # update widget immediately
+
+        # Schedule updates to the widget at regular intervals
+        self.status_text.after(10, self.update_status)
+
+    
+    def update_status(self):
+        # Update the widget and schedule another update
+        self.status_text.update_idletasks()
+        self.status_text.after(100, self.update_status)
+
+    def update_config(self):
+
+        with open("config.yaml",'r') as f:
+            config = yaml.safe_load(f)
+
+        config["ip_address"] = str(self.ip_address)
+        config["port_number"] = int(self.port_number)
+
+        with open("config.yaml",'w') as f:
+            yaml.dump(config, f)
 
     def stop_client(self):
-        self.process.terminate()
+        # close_connection()
+        # self.process.terminate()
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
         self.status_text.insert(tk.END, "Client stopped\n")
