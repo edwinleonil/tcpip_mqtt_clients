@@ -62,9 +62,11 @@ class App(QMainWindow):
         self.stop_button.clicked.connect(self.stop_client)
         self.connect_button.clicked.connect(self.connect_to_server)
         
-        self.update_config()
+        
 
     def connect_to_server(self):
+        
+        self.update_config()
 
         # Create a new thread to run connect_tcpip function
         self.tcpip_thread = QThread()
@@ -80,6 +82,7 @@ class App(QMainWindow):
         self.tcpip_thread.start()
 
     def logging_data(self):
+
         #start logging data thread and quit the thread when the logging is done
         self.log_thread = QThread()
         # Create a new worker to run connect_tcpip function
@@ -112,24 +115,16 @@ class App(QMainWindow):
         else:
             # add a csv file to the csv_file_path directory
             self.csv_file_path = self.csv_file_path + "data1.csv"
-        self.status_text.append("Config file updated\n")
-
-
-    def start_client(self):
-        self.client_socket = None
-        self.connected = False
-        self.logging = False
-        # start the log thread
-        self.log_thread = LogThread()
-        self.log_thread.start()
+        # update the status text with the csv file path
+        self.status_text.append("CSV file created at: " + self.csv_file_path + "\n")
 
 
     def stop_client(self):
         self.logging = False
         self.stop_button.setEnabled(False)
-        self.start_button.setEnabled(True)
+        self.start_button.setEnabled(False)
+        self.connect_button.setEnabled(True)
         self.status_text.append("Client stopped\n")
-
 
 
 class TcpipWorker(QObject):
@@ -146,7 +141,7 @@ class TcpipWorker(QObject):
         self.app.start_button.setEnabled(False)
         self.app.stop_button.setEnabled(True)
         self.app.status_text.clear()
-        self.app.status_text.append("Client started\n")
+        self.app.status_text.append("Connecting to TCP/IP server ...\n")
 
     def connect_tcpip(self):
         counter = 0
@@ -193,7 +188,7 @@ class LogThread(QThread):
         self.app.stop_button.setEnabled(True)
 
         # update the status text
-        self.app.status_text.append("Logging ...\n")
+        self.app.status_text.append("Logging data ...\n")
 
     def log_data(self):
 
@@ -231,14 +226,15 @@ class LogThread(QThread):
 
                                 if data.decode('utf-8') == "STOP":
 
-                                    self.app.status_text.append("Logging stopped\n")
+                                    self.app.status_text.append("Logging completed.\n")
                                     self.app.stop_button.setEnabled(True)
-                                    self.app.start_button.setEnabled(True)
-                                    self.app.connect_button.setEnabled(True)
+                                    self.app.start_button.setEnabled(False)
+                                    self.app.connect_button.setEnabled(False)
                                     break
                                 else:
                                     writer.writerow([data.decode('utf-8')])  # write data to CSV file              
         self.finished.emit()
+        self.client_socket.close()  # close the socket
         # close the csv file
         file.close()
 
