@@ -18,35 +18,29 @@ class App(QMainWindow):
         self.client_socket = None
         self.connected = False
         self.stop_flag = False
+        self.csv_file_path = None
 
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
 
         self.host = config["ip_address"]
         self.port = config["port_number"]
-
-        self.host = str(self.host)
-        self.port = int(self.port)
-
-        self.csv_file_path = "data/"
-
-        
-        
+        self.folder_path = config["robot_csv_data_path"]
+ 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
         self.ip_label = QLabel("IP Address:")
-        self.ip_var = QLineEdit(str(self.host))
+        self.ip_var = QLineEdit((self.host))
         self.port_label = QLabel("Port Number:")
         self.port_var = QLineEdit(str(self.port))
 
         self.folder_label = QLabel("Current folder Path:")
-        self.folder_var = QLineEdit(self.csv_file_path)
+        self.folder_var = QLineEdit(self.folder_path)
         # add a button to select a folder path from the file system
         self.folder_button = QPushButton("Change folder path")
 
         
-
         self.start_button = QPushButton("Connect to server and log data")
         self.stop_button = QPushButton("Stop / Stop logging and disconnect")
         self.stop_button.setEnabled(False)
@@ -86,8 +80,8 @@ class App(QMainWindow):
         self.folder_button.clicked.connect(self.select_folder)
 
     def select_folder(self):
-        self.csv_file_path = QFileDialog.getExistingDirectory(self, "Select Directory")
-        self.folder_var.setText(self.csv_file_path)
+        self.folder_path = QFileDialog.getExistingDirectory(self, "Select Directory")
+        self.folder_var.setText(self.folder_path)
 
     def logging_data(self):
         self.update_config()
@@ -107,31 +101,35 @@ class App(QMainWindow):
 
 
     def update_config(self):
-        # get the IP address and port number from the config.yaml file
-        with open(self.config_file_path) as f:
+
+        with open("config.yaml",'r') as f:
             config = yaml.safe_load(f)
 
-        self.host = config["ip_address"]
-        self.port = config["port_number"]
-        
-        self.csv_file_path = config["robot_csv_data_path"]
+        config["ip_address"] = self.host
+        config["port_number"] = self.port
+        config["robot_csv_data_path"] = self.folder_path
+
+        with open("config.yaml",'w') as f:
+            yaml.dump(config, f)
+
         # list files inside the csv_file_path directory
-        files = os.listdir(self.csv_file_path)
+        files = os.listdir(self.folder_path)
         # if files exist
         if files:
             # add a csv file with a consecutive number to the csv_file_path directory
-            self.csv_file_path = self.csv_file_path + "data" + str(len(files)+1) + ".csv"
+            self.csv_file_path = self.folder_path + "/data" + str(len(files)+1) + ".csv"
         else:
             # add a csv file to the csv_file_path directory
-            self.csv_file_path = self.csv_file_path + "data1.csv"
+            self.csv_file_path = self.folder_path + "/data1.csv"
         # update the status text with the csv file path
-        self.status_text.append("CSV file created at: " + self.csv_file_path + "\n")
+        # self.status_text.append("CSV file created at: " + self.csv_file_path, "\n")
 
 
     def stop_client(self):
         self.stop_flag = True
         self.stop_button.setEnabled(False)
         self.start_button.setEnabled(True)
+        self.status_text.clear()
 
 
 class LogThread(QThread):
@@ -156,6 +154,8 @@ class LogThread(QThread):
         self.app.stop_button.setEnabled(True)
         self.app.status_text.clear()
         self.on_new_message("Connecting to TCP/IP server ...\n")
+        # run update_config function to update the config.yaml file
+        self.app.update_config()
     
     def on_new_message(self, message):
         # Add the new message to the text box
@@ -170,87 +170,91 @@ class LogThread(QThread):
         else:
             scroll_bar.setValue(max_value+height)
 
-    def log_data(self):
-        
+    def connect_to_server(self):
         while True:
+
             if self.app.stop_flag == True:
-                
                 self.on_new_message("Connection attempt stopped.\n")
                 self.finished.emit()
                 break
+
             if self.logging_stop == True:
                 self.client_socket.close()  # close the socket
-                self.on_new_message("Logging completed.\n")
-                
-                file.close()
+                self.on_new_message("Logging completed.\n")            
+                self.file.close()
                 self.app.start_button.setEnabled(True)
                 self.app.stop_button.setEnabled(False)
                 self.finished.emit()
                 break
+
             try:
                 # create a TCP/IP socket
                 self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 # connect the socket to the server's address and port
                 self.client_socket.connect((self.host, self.port))
-              
                 self.app.start_button.setEnabled(True)
                 self.app.stop_button.setEnabled(True)
                 self.connected = True
                 self.on_new_message("Connected to TCP/IP server.\n")       
+                break
 
             except ConnectionRefusedError:
                 self.on_new_message("Connection refused. Retrying in 1 second...\n")
                 time.sleep(0.5)
 
-            if self.connected == True:
-                with open(self.csv_file_path, mode='w') as file:
-                    writer = csv.writer(file)
-                    while True:
+    def log_data(self):
 
-                        if self.app.stop_flag == True:
-                            self.on_new_message("Client stopped\n")
-                            break
+        # run the connect_to_server function
+        self.connect_to_server()
+        
+        if self.connected == True:
+
+            with open(self.csv_file_path, mode='w') as self.file:
+                writer = csv.writer(self.file)
+                while True:
+
+                    if self.app.stop_flag == True:
+                        self.on_new_message("Client stopped\n")
+                        break
+                    
+                    # send data to the server
+                    message = "get data"
+                    self.client_socket.sendall(message.encode('utf-8'))
+
+                    # receive data from the server
+                    data = self.client_socket.recv(1024)
+
+                    if not data:
+                        self.on_new_message("No more data, server has clossed the connection\n")
                         
-                        # send data to the server
-                        message = "get data"
-                        self.client_socket.sendall(message.encode('utf-8'))
+                        # server has closed the connection, break out of the loop
+                        break
 
-                        # receive data from the server
-                        data = self.client_socket.recv(1024)
+                    if data.decode('utf-8') == "ON":
+                        self.on_new_message("Logging data...\n")
+                        
+                        while True:
+                            if self.app.stop_flag == True:
+                                self.on_new_message("Client stopped\n")
+                                self.client_socket.close()  # close the socket
+                                break
 
-                        if not data:
-                            self.on_new_message("No more data, server has clossed the connection\n")
-                            
-                            # server has closed the connection, break out of the loop
-                            break
+                            # send data to the server
+                            message = "received"
+                            self.client_socket.sendall(message.encode('utf-8'))
 
-                        if data.decode('utf-8') == "ON":
-                            self.on_new_message("Logging data...\n")
-                            
-                            while True:
-                                if self.app.stop_flag == True:
-                                    self.on_new_message("Client stopped\n")
-                                    self.client_socket.close()  # close the socket
-                                    break
+                            # receive data from the server
+                            data = self.client_socket.recv(1024)
 
-                                # send data to the server
-                                message = "received"
-                                self.client_socket.sendall(message.encode('utf-8'))
+                            if not data:
+                                self.on_new_message("No more data, server has clossed the connection\n")
+                                break
 
-                                # receive data from the server
-                                data = self.client_socket.recv(1024)
-
-                                if not data:
-                                    self.on_new_message("No more data, server has clossed the connection\n")
-                                    break
-
-                                if data.decode('utf-8') == "STOP":
-                                    self.app.stop_button.setEnabled(True)
-                                    self.app.start_button.setEnabled(False)
-                                    self.logging_stop = True
-                                    break
-                                else:
-                                    writer.writerow([data.decode('utf-8')])  # write data to CSV file              
+                            if data.decode('utf-8') == "STOP":
+                                self.logging_stop = True
+                                break
+                            else:
+                                writer.writerow([data.decode('utf-8')])  # write data to CSV file              
             
             
 if __name__ == "__main__":
