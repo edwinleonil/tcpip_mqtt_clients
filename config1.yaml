@@ -1,0 +1,9 @@
+ip_address: 172.16.49.197
+port_number: 5000
+tcpip_data_path: C:/Users/me1elar/Documents/GitHub/tcpip_mqtt_clients/data
+mqtt_broker_address: "192.168.131.214"
+mqtt_broker_port: 1883
+mqtt_topic: "ORA/v1/instrument/measurements/Static.Constellation->Spindle.SMR"
+mqtt_data_path: C:/Users/me1elar/Documents/GitHub/tcpip_mqtt_clients/data
+```
+
