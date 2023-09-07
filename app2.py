@@ -28,7 +28,7 @@ class App(QMainWindow):
 
         self.host = config["ip_address"]
         self.port = config["port_number"]
-        self.folder_path = config["robot_csv_data_path"]
+        self.folder_path = config["tcpip_data_path"]
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)

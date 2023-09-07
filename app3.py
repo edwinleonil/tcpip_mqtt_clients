@@ -4,24 +4,42 @@ import time
 import yaml
 import csv
 import os
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit, QGridLayout, QFileDialog
-from PyQt6.QtCore import QThread, pyqtSignal, Qt, QRect
+from PyQt6.QtWidgets import (
+    QApplication, 
+    QMainWindow, 
+    QWidget, 
+    QLabel, 
+    QLineEdit, 
+    QPushButton, 
+    QTextEdit, 
+    QGridLayout, 
+    QFileDialog
+)
+
+from PyQt6.QtCore import pyqtSignal, Qt, QRunnable, QThreadPool
+
+import paho.mqtt.client as mqtt
+import json
 
 
 class App(QMainWindow):
+
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("TCP/IP and MQTT Client App")
         self.setGeometry(100, 100, 1100, 500)
         
+        # create a QThreadPool object
+        self.thread_pool = QThreadPool()
+
         # Center the window on the screen
         self.center()
 
         self.client_socket = None
         self.connected = False
         self.stop_flag = False
-        self.csv_file_path = None
+        self.tcpip_csv_file_path = None
 
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
@@ -111,9 +129,10 @@ class App(QMainWindow):
 
         self.central_widget.setLayout(layout)
 
-        self.start_button.clicked.connect(self.logging_data)
+        self.start_button.clicked.connect(self.on_start_button_clicked)
         self.stop_button.clicked.connect(self.stop_client)
         self.tcpip_folder_button.clicked.connect(self.select_folder)
+
 
     # center the window on the screen
     def center(self):
@@ -129,21 +148,23 @@ class App(QMainWindow):
         self.tcpip_folder_path = QFileDialog.getExistingDirectory(self, "Select Directory")
         self.tcpip_folder_var.setText(self.tcpip_folder_path)
 
-    def logging_data(self):
+
+    def on_start_button_clicked(self):
         self.update_config()
 
-        #start logging data thread and quit the thread when the logging is done
-        self.log_thread = QThread()
-        # Create a new worker to run connect_tcpip function
-        self.log_worker = LogThread(self.csv_file_path,self.host, self.port, self)
-        # Move the worker to the thread
-        self.log_worker.moveToThread(self.log_thread)
-        # Connect the worker's finished signal to the thread's quit method
-        self.log_worker.finished.connect(self.log_thread.quit)
-        # Connect the thread's started signal to the worker's connect_tcpip method
-        self.log_thread.started.connect(self.log_worker.log_data)
-        # Start the thread
-        self.log_thread.start()
+        # get the values from the UI
+        self.broker_address = self.mqtt_broker_address_var.text()
+        self.broker_port = int(self.mqtt_broker_port_var.text())
+        self.topic = self.mqtt_topic_var.text()
+
+        # start logging and MQTT in separate threads
+        self.thread_pool.start(LogThread(self.tcpip_csv_file_path, self.host, self.port, self))
+        self.thread_pool.start(MQTTThread(self.broker_address, self.broker_port, self.topic, filename='data/mqtt_data.csv', App=self))
+
+        # connect the signals to the slots
+        # self.thread_pool.started.connect(self.LogThread.started)
+
+
 
 
     def update_config(self):
@@ -158,15 +179,15 @@ class App(QMainWindow):
         with open("config.yaml",'w') as f:
             yaml.dump(config, f)
 
-        # list files inside the csv_file_path directory
+        # list files inside the tcpip_csv_file_path directory
         files = os.listdir(self.tcpip_folder_path)
         # if files exist
         if files:
-            # add a csv file with a consecutive number to the csv_file_path directory
-            self.csv_file_path = self.tcpip_folder_path + "/data" + str(len(files)+1) + ".csv"
+            # add a csv file with a consecutive number to the tcpip_csv_file_path directory
+            self.tcpip_csv_file_path = self.tcpip_folder_path + "/data" + str(len(files)+1) + ".csv"
         else:
-            # add a csv file to the csv_file_path directory
-            self.csv_file_path = self.tcpip_folder_path + "/data1.csv"
+            # add a csv file to the tcpip_csv_file_path directory
+            self.tcpip_csv_file_path = self.tcpip_folder_path + "/data1.csv"
 
 
     def stop_client(self):
@@ -175,15 +196,16 @@ class App(QMainWindow):
         self.start_button.setEnabled(True)
 
 
-class LogThread(QThread):
-    finished = pyqtSignal()
-
-    def __init__(self, csv_file_path, host, port, App):
+class LogThread(QRunnable):
+    # started = pyqtSignal()
+    # finished = pyqtSignal()
+    # quit = pyqtSignal()
+    def __init__(self, tcpip_csv_file_path, host, port, App):
 
         super().__init__()
 
         self.app = App
-        self.csv_file_path = csv_file_path
+        self.tcpip_csv_file_path = tcpip_csv_file_path
 
         self.host = str(host)
         self.port = int(port)
@@ -219,7 +241,9 @@ class LogThread(QThread):
         self.file.close()
         self.app.start_button.setEnabled(True)
         self.app.stop_button.setEnabled(False)
-        self.finished.emit()
+
+        # self.finished.emit()
+        # self.quit.emit()
         
 
     def connect_to_server(self):
@@ -230,7 +254,9 @@ class LogThread(QThread):
 
             if self.app.stop_flag == True:
                 self.on_new_message("Connection attempt stopped.\n")
-                self.finished.emit()
+                # self.finished.emit()
+                # self.finished.emit()
+                # self.quit.emit()
                 break
 
             try:
@@ -240,6 +266,7 @@ class LogThread(QThread):
                 self.client_socket.connect((self.host, self.port))
                 self.app.start_button.setEnabled(True)
                 self.app.stop_button.setEnabled(True)
+
                 self.connected = True
                 self.on_new_message("Connected to TCP/IP server")       
                 break
@@ -250,16 +277,17 @@ class LogThread(QThread):
                 time.sleep(0.5)
         return self.connected
 
-    def log_data(self):
-
+    def run(self):
+        # self.started.emit()
         # run the connect_to_server function
         self.connected = self.connect_to_server()
         
         if self.connected == True:
             self.app.stop_button.setEnabled(False)
             self.app.start_button.setEnabled(False)
+
             self.on_new_message("Waiting for data...\n")
-            with open(self.csv_file_path, mode='w') as self.file:
+            with open(self.tcpip_csv_file_path, mode='w') as self.file:
                 writer = csv.writer(self.file)
                 while True:
 
@@ -309,41 +337,17 @@ class LogThread(QThread):
                 self.on_stop_message()
 
 # add a class for the MQTT client that runs in a separate thread
-class MQTTThread(QThread):
-    #example 
-    # def __init__(self, broker_address, broker_port, topic, filename):
-    #     self.broker_address = broker_address
-    #     self.broker_port = broker_port
-    #     self.topic = topic
-    #     self.filename = filename
-    #     self.client = mqtt.Client()
-    #     self.client.on_message = self.on_message
-    #     self.client.connect(self.broker_address, self.broker_port, 60)
-    #     self.client.subscribe(self.topic)
-    #     self.client.loop_start()
-    #     self.count = 1
-
-    # def on_message(self, client, userdata, message):
-    #     data = json.loads(message.payload.decode())
-    #     parsed_data = data['timestamp'],data['position']['x'], data['position']['y'], data['position']['z'], data['position']['rx'], data['position']['ry'], data['position']['rz']
-    #     print(parsed_data)
-    #     with open(self.filename, 'a', newline='') as csvfile:
-    #         writer = csv.writer(csvfile)
-    #         writer.writerow(parsed_data)
-
-    # def run(self):
-    #     while self.count < 10:
-    #         self.count += 1
-    #         time.sleep(0.1)
-
-    # use the previous example to create a MQTT client that runs in a separate thread
-
-    def __init__(self, broker_address, broker_port, topic, filename):
+class MQTTThread(QRunnable):
+    # started = pyqtSignal()
+    # finished = pyqtSignal()
+    # quit = pyqtSignal()
+    # stop = pyqtSignal()
+    def __init__(self, mqtt_broker_address, mqtt_broker_port, mqtt_topic, filename,App):
         super().__init__()
 
-        self.broker_address = broker_address
-        self.broker_port = broker_port
-        self.topic = topic
+        self.broker_address = mqtt_broker_address
+        self.broker_port = mqtt_broker_port
+        self.topic = mqtt_topic
         self.filename = filename
         self.client = mqtt.Client()
         self.client.on_message = self.on_message
@@ -361,12 +365,15 @@ class MQTTThread(QThread):
             writer.writerow(parsed_data)
 
     def run(self):
-        while self.count < 10:
+        # self.started.emit()
+        while self.count < 1:
             self.count += 1
             time.sleep(0.1)
+     
+        # terminate thread
+        # self.stop.emit()
 
-            
-
+        return
 
 
 if __name__ == "__main__":
