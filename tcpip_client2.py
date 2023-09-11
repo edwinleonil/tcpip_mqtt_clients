@@ -26,8 +26,8 @@ class App(QMainWindow):
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
 
-        self.host = config["ip_address"]
-        self.port = config["port_number"]
+        self.host = config["tcpip_address"]
+        self.port = config["tcpip_port_number"]
         self.folder_path = config["tcpip_data_path"]
         
         self.central_widget = QWidget()
