@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
         self.list.addItem(f'Job #{n} completed.')
         self.comleted_jobs.append(n)
         self.progress_bar.setValue(len(self.comleted_jobs))
+        print(f"Thread {n} finished")
 
         if len(self.comleted_jobs) == self.job_count:
             self.btn_start.setEnabled(True)
@@ -75,12 +76,3 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
     sys.exit(app.exec())
-
-
-def complete(self, n):
-    self.list.addItem(f'Job #{n} completed.')
-    self.comleted_jobs.append(n)
-    self.progress_bar.setValue(len(self.comleted_jobs))
-
-    if len(self.comleted_jobs) == self.job_count:
-        self.btn_start.setEnabled(True)
