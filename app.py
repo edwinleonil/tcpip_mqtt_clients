@@ -172,6 +172,9 @@ class App(QMainWindow):
         with open("config.yaml",'w') as f:
             yaml.dump(config, f)
 
+        # close the file
+        f.close()
+
         # list files inside the tcpip_csv_file_path directory
         tcpip_files = os.listdir(self.tcpip_folder_path)
         # list files inside the mqtt_csv_file_path directory
@@ -364,6 +367,7 @@ class MQTTThread(QRunnable):
         self.mqtt_logging_stop = False
         self.app = App
         self.on_new_message("Connecting to MQTT broker...")
+        self.csv_file = None
 
     def on_new_message(self, message):
         # Add the new message to the text box
@@ -382,8 +386,8 @@ class MQTTThread(QRunnable):
         data = json.loads(message.payload.decode())
         parsed_data = data['timestamp'],data['position']['x'], data['position']['y'], data['position']['z'], data['position']['rx'], data['position']['ry'], data['position']['rz']
         # print(parsed_data)
-        with open(self.filename, 'a', newline='') as csvfile:
-            writer = csv.writer(csvfile)
+        with open(self.filename, 'a', newline='') as self.csvfile:
+            writer = csv.writer(self.csvfile)
             writer.writerow(parsed_data)
 
     # function to connect to the MQTT broker
@@ -425,6 +429,9 @@ class MQTTThread(QRunnable):
                         self.on_new_message("Logging completed\n")
                         self.client.loop_stop()
                         self.client.disconnect()
+                        # close the csv file
+                        self.csvfile.close()
+
                         self.mqtt_logging_stop = True
                         break
                     time.sleep(0.1) 
