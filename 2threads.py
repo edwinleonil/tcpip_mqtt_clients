@@ -19,11 +19,12 @@ class Task1(QRunnable):
         for i in range(10):
             print("thread 1: "+str(i))
             time.sleep(1)
-        self.signals.finished.emit(10)
-        # print the signal 
-        # print(self.signals.finished.signal)
+
+        self.signals.finished.emit(1)
         self.app.thread1_stopped = True
         print(self.app.thread1_stopped)
+        # update the text box
+        self.app.text_box.append("Thread 1 finished")
 
 
 class Task2(QRunnable):
@@ -38,11 +39,12 @@ class Task2(QRunnable):
         for i in range(10):
             print("thread 2: "+str(i))
             time.sleep(0.5)
-        self.signals.finished.emit(20)
-        # print the signal 
-        # print(self.signals.finished)
+
+        self.signals.finished.emit(2)
         self.app.thread2_stopped = True
         print(self.app.thread2_stopped)
+        # update the text box
+        self.app.text_box.append("Thread 2 finished")
 
 
 class MainWindow(QMainWindow):
@@ -64,24 +66,27 @@ class MainWindow(QMainWindow):
         self.button = QPushButton("Start")
         self.layout.addWidget(self.button)
         self.button.clicked.connect(self.start_threads)
+        # add a text box to show the progress
+        self.text_box = QTextEdit()
+        self.layout.addWidget(self.text_box)
+
         self.show()
         
         
     def start_threads(self):
-   
         # create QThreadPool and add the tasks to it
         thread_pool = QThreadPool()
         self.task1 = Task1(app= self)
         self.task2 = Task2(app = self)
-        # connect the signals to the thread pool
+        # connect the signals to the thread pool and output the result inmediately
         self.task1.signals.finished.connect(self.progress_fn)
         self.task2.signals.finished.connect(self.progress_fn)
 
+        # start the threads   
         thread_pool.start(self.task1)
         thread_pool.start(self.task2)
 
     def progress_fn(self, n):
-        # print a integer
         print(f"Thread {n} finished")
 
 if __name__ == "__main__":

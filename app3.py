@@ -4,25 +4,15 @@ import time
 import yaml
 import csv
 import os
-from PyQt6.QtWidgets import (
-    QApplication, 
-    QMainWindow, 
-    QWidget, 
-    QLabel, 
-    QLineEdit, 
-    QPushButton, 
-    QTextEdit, 
-    QGridLayout, 
-    QFileDialog
-)
-
-from PyQt6.QtCore import pyqtSignal, Qt, QRunnable, QThreadPool
-
+from PyQt6.QtGui import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
 import paho.mqtt.client as mqtt
 import json
 
 
 class App(QMainWindow):
+    '''Main window class'''
 
     def __init__(self):
         super().__init__()
@@ -40,12 +30,13 @@ class App(QMainWindow):
         self.connected = False
         self.stop_flag = False
         self.tcpip_csv_file_path = None
+        self.mqtt_csv_file_path = None
 
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
 
-        self.host = config["ip_address"]
-        self.port = config["port_number"]
+        self.tcpip_host = config["tcpip_address"]
+        self.tcpip_port = config["tcpip_port_number"]
         self.tcpip_folder_path = config["tcpip_data_path"]
 
         self.mqtt_broker_address = config["mqtt_broker_address"]
@@ -60,15 +51,15 @@ class App(QMainWindow):
         self.mqtt_client = QLabel("MQTT Client")
 
         self.tcpip_label = QLabel("TCP/IP server address:")
-        self.tcpip_var = QLineEdit((self.host))
-        self.tcpip_port_label = QLabel("TCP/IP port Number:")
-        self.tcpip_port_var = QLineEdit(str(self.port))
+        self.tcpip_var = QLineEdit((self.tcpip_host))
+        self.tcpip_port_label = QLabel("TCP/IP tcpip_port Number:")
+        self.tcpip_port_var = QLineEdit(str(self.tcpip_port))
         self.tcpip_folder_button = QPushButton("TCP/IP data save at:")
         self.tcpip_folder_var = QLineEdit(self.tcpip_folder_path)
 
         self.mqtt_broker_address_label = QLabel("MQTT Broker Address:")
         self.mqtt_broker_address_var = QLineEdit(self.mqtt_broker_address)
-        self.mqtt_broker_port_label = QLabel("MQTT Broker Port:")
+        self.mqtt_broker_port_label = QLabel("MQTT Broker tcpip_Port:")
         self.mqtt_broker_port_var = QLineEdit(str(self.mqtt_broker_port))
         self.mqtt_topic_label = QLabel("MQTT Topic:")
         self.mqtt_topic_var = QLineEdit(self.mqtt_topic)
@@ -158,13 +149,11 @@ class App(QMainWindow):
         self.topic = self.mqtt_topic_var.text()
 
         # start logging and MQTT in separate threads
-        self.thread_pool.start(LogThread(self.tcpip_csv_file_path, self.host, self.port, self))
-        self.thread_pool.start(MQTTThread(self.broker_address, self.broker_port, self.topic, filename='data/mqtt_data.csv', App=self))
+        self.thread_pool.start(LogThread(self.tcpip_csv_file_path, self.tcpip_host, self.tcpip_port, self))
+        self.thread_pool.start(MQTTThread(self.broker_address, self.broker_port, self.topic, self.mqtt_csv_file_path, App=self))
 
         # connect the signals to the slots
         # self.thread_pool.started.connect(self.LogThread.started)
-
-
 
 
     def update_config(self):
@@ -172,22 +161,37 @@ class App(QMainWindow):
         with open("config.yaml",'r') as f:
             config = yaml.safe_load(f)
 
-        config["ip_address"] = self.host
-        config["port_number"] = self.port
+        config["tcpip_address"] = self.tcpip_host
+        config["tcpip_port_number"] = self.tcpip_port
         config["tcpip_data_path"] = self.tcpip_folder_path
+        config["mqtt_broker_address"] = self.mqtt_broker_address
+        config["mqtt_broker_port"] = self.mqtt_broker_port
+        config["mqtt_topic"] = self.mqtt_topic
+        config["mqtt_data_path"] = self.mqtt_folder_path
+
 
         with open("config.yaml",'w') as f:
             yaml.dump(config, f)
 
         # list files inside the tcpip_csv_file_path directory
-        files = os.listdir(self.tcpip_folder_path)
-        # if files exist
-        if files:
+        tcpip_files = os.listdir(self.tcpip_folder_path)
+        # list files inside the mqtt_csv_file_path directory
+        mqtt_files = os.listdir(self.mqtt_folder_path)
+        # if files exist for tcpip
+        if tcpip_files:
             # add a csv file with a consecutive number to the tcpip_csv_file_path directory
-            self.tcpip_csv_file_path = self.tcpip_folder_path + "/data" + str(len(files)+1) + ".csv"
+            self.tcpip_csv_file_path = self.tcpip_folder_path + "/tcpip_data_" + str(len(tcpip_files)+1) + ".csv"
         else:
             # add a csv file to the tcpip_csv_file_path directory
-            self.tcpip_csv_file_path = self.tcpip_folder_path + "/data1.csv"
+            self.tcpip_csv_file_path = self.tcpip_folder_path + "/tcpip_data_1.csv"
+        
+        # if files exist for mqtt
+        if mqtt_files:
+            # add a csv file with a consecutive number to the mqtt_csv_file_path directory
+            self.mqtt_csv_file_path = self.mqtt_folder_path + "/mqtt_data_" + str(len(mqtt_files)+1) + ".csv"
+        else:
+            # add a csv file to the mqtt_csv_file_path directory
+            self.mqtt_csv_file_path = self.mqtt_folder_path + "/mqtt_data_1.csv"
 
 
     def stop_client(self):
@@ -195,20 +199,26 @@ class App(QMainWindow):
         self.stop_button.setEnabled(False)
         self.start_button.setEnabled(True)
 
+class WorkerSignals(QObject):
+    # create signals to communicate with the main thread
+    started = pyqtSignal()
+    finished = pyqtSignal()
+    quit = pyqtSignal()
+
 
 class LogThread(QRunnable):
     # started = pyqtSignal()
     # finished = pyqtSignal()
     # quit = pyqtSignal()
-    def __init__(self, tcpip_csv_file_path, host, port, App):
+    def __init__(self, tcpip_csv_file_path, tcpip_host, tcpip_port, App):
 
         super().__init__()
 
         self.app = App
         self.tcpip_csv_file_path = tcpip_csv_file_path
 
-        self.host = str(host)
-        self.port = int(port)
+        self.tcpip_host = str(tcpip_host)
+        self.tcpip_port = int(tcpip_port)
 
         self.connected = False
         self.client_socket = None
@@ -262,8 +272,8 @@ class LogThread(QRunnable):
             try:
                 # create a TCP/IP socket
                 self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                # connect the socket to the server's address and port
-                self.client_socket.connect((self.host, self.port))
+                # connect the socket to the server's address and tcpip_port
+                self.client_socket.connect((self.tcpip_host, self.tcpip_port))
                 self.app.start_button.setEnabled(True)
                 self.app.stop_button.setEnabled(True)
 
@@ -338,23 +348,22 @@ class LogThread(QRunnable):
 
 # add a class for the MQTT client that runs in a separate thread
 class MQTTThread(QRunnable):
-    # started = pyqtSignal()
-    # finished = pyqtSignal()
-    # quit = pyqtSignal()
-    # stop = pyqtSignal()
-    def __init__(self, mqtt_broker_address, mqtt_broker_port, mqtt_topic, filename,App):
+    finished = WorkerSignals()
+    def __init__(self, mqtt_broker_address, mqtt_broker_port, mqtt_topic, file_path,App):
         super().__init__()
 
         self.broker_address = mqtt_broker_address
         self.broker_port = mqtt_broker_port
         self.topic = mqtt_topic
-        self.filename = filename
+        self.filename = file_path
         self.client = mqtt.Client()
         self.client.on_message = self.on_message
         self.client.connect(self.broker_address, self.broker_port, 60)
         self.client.subscribe(self.topic)
         self.client.loop_start()
-        self.count = 1
+        self.count = 0
+        self.app = App
+        # self.app.stop_flag = False
 
     def on_message(self, client, userdata, message):
         data = json.loads(message.payload.decode())
@@ -365,14 +374,14 @@ class MQTTThread(QRunnable):
             writer.writerow(parsed_data)
 
     def run(self):
-        # self.started.emit()
-        while self.count < 1:
-            self.count += 1
+        # run the MQTT client while the stop button is not pressed
+        while True:
+            if self.app.stop_flag == True:
+                break
             time.sleep(0.1)
      
         # terminate thread
-        # self.stop.emit()
-
+        self.client.loop_stop()
         return
 
 
